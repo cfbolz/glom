@@ -257,12 +257,15 @@ class Path(object):
     def __init__(self, *path_parts):
         path_t = T
         for part in path_parts:
-            if isinstance(part, Path):
-                part = part.path_t
-            if isinstance(part, _TType):
-                sub_parts = _T_PATHS[part]
+            if isinstance(part, basestring):
+                sub_parts = part.split('.')
             else:
-                sub_parts = ('P', part)
+                if isinstance(part, Path):
+                    part = part.path_t
+                if isinstance(part, _TType):
+                    sub_parts = _T_PATHS[part]
+                else:
+                    sub_parts = ('P', part)
             while i < len(sub_parts):
                 path_t = _t_child(path_t, sub_parts[i], sub_parts[i + 1])
                 i += 2
@@ -272,6 +275,11 @@ class Path(object):
         assert not isinstance(part, _TType), "call extend or +?"
         assert not isinstance(part, Path), "call extend or +?"
         self.path_t = _t_child(self.path_t, 'P', part)
+
+    def get(self, target, inspector, recurse):
+        # TODO: register handlers for types
+        # -- this really needs to merge with context
+        return _t_eval(self.path_t, target, inspector, recurse)
 
     def __getitem__(self, idx):
         # TODO: is this still needed?
@@ -856,12 +864,7 @@ class Glommer(object):
         return
 
     def _get_path(self, target, path):
-        try:
-            parts = path.split('.')
-        except (AttributeError, TypeError):
-            parts = getattr(path, 'path_parts', None)
-            if parts is None:
-                raise TypeError('path expected str or Path object, not: %r' % path)
+
         cur, val = target, target
         for i, part in enumerate(parts):
             handler = self._get_handler(cur)
@@ -999,13 +1002,10 @@ class Glommer(object):
             ret = spec(target, path, inspector, self._glom)
         elif callable(spec):
             ret = spec(target)
-        elif isinstance(spec, (basestring, Path)):
-            try:
-                ret = self._get_path(target, spec)
-            except PathAccessError as pae:
-                pae.path = Path(*(path + list(pae.path)))
-                pae.path_idx += len(path)
-                raise
+        elif isinstance(spec, Path):
+            ret = spec.get(target)
+        elif isinstance(spec, basestring):
+            ret = Path(spec).get(target)
         elif isinstance(spec, Coalesce):
             skipped = []
             for subspec in spec.subspecs:
